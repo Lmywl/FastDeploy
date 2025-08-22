@@ -111,11 +111,14 @@ class GraphOptBackend:
     fd_config: FDConfig
     cudagraph_piecewise_backend: Optional[CudaGraphPiecewiseBackend] = None
 
+    # from decorator: graph_opt_backend = GraphOptBackend(self.forward, fd_config)
+    # module.forward 会被作为 这里的 Callable 传入给GraphOptBackend
     def __init__(self, runnable: Callable, fd_config: FDConfig):
         self.runnable = runnable
         self.fd_config = fd_config
-
         self.max_captre_batch = fd_config.graph_opt_config.cudagraph_capture_sizes[0]
+        # 只有当 graph_opt_level > 0时，才会走静态图模式,
+        # 否则 runnable 就是传入的model.forward()函数
         if self.fd_config.graph_opt_config.graph_opt_level > 0:
             # 1. Prepare cuda grpah input buffers (contain output of subgraphs)
 

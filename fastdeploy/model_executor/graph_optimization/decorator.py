@@ -47,11 +47,18 @@ def support_graph_optimization(cls: Optional[_T] = None) -> _T:
     if GraphOptWrapper in cls.__bases__:
         return cls
     else:
+        # 父类继承, 让传入的 model 继承 GraphOptWrapper
+        # 继承链变化为: GraphOptWrapper, paddle.nn.layer -> Ernie
+        # MRO(方法解析顺序),调用指定方法时，其查找顺序变为:
+        # Ernie -> paddle.nn.layer --> GraphOptWrapper(因为GraphOptWrapper在初始__base__元组的最最后)
         cls.__bases__ = cls.__bases__ + (GraphOptWrapper,)
+
     origin_init = cls.__init__
 
     def __init__(self, fd_config: FDConfig, **kwargs):
         """Decorator model.__init__() func"""
+        # 新的初始化函数中，除了初始化原始的nn.Layer，还会初始化 GraphOptwrappper ###
+        # 为后续调用 图优化后端 做铺垫 ###
         origin_init(self, fd_config=fd_config, **kwargs)
         self.use_graph_opt = fd_config.graph_opt_config.graph_opt_level > 0 or fd_config.graph_opt_config.use_cudagraph
         if self.use_graph_opt:
@@ -64,9 +71,13 @@ def support_graph_optimization(cls: Optional[_T] = None) -> _T:
         """Decorator model.__call__() func"""
         if not self.use_graph_opt:
             return self.forward(**kwargs)
-
+        # 如果开启了 graph_opt, 此时的模型forward控制权会被交到 graph_opt_backend()当中
         return self.graph_opt_backend(**kwargs)
 
+    # 调用该装饰器后，传入cls的__init__方法和__call__方法都会被替
+    # 换为自定义的考虑 cudagraph 使用的__init__和__call__方法，
+    # 实际上，这里的 __call__ 方法会覆盖掉  GraphOptWrapper.__call__,
+    # 这里的 __call__方法修改为 super(GraphOptWrapper, self).__call__(**kwargs) 或许更合适
     cls.__init__ = __init__
     cls.__call__ = __call__
     return cls

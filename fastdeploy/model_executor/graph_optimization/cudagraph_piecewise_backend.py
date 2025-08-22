@@ -51,6 +51,8 @@ class ConcreteSizeEntry:
 class CudaGraphPiecewiseBackend:
     """Manage the capture and replay of CUDA graphs at the subgraph level."""
 
+    # 这里的 runnable 有两种取值：①model.forward() ②静态化后的 model.forward()
+
     def __init__(
         self,
         fd_config: FDConfig,
@@ -74,6 +76,10 @@ class CudaGraphPiecewiseBackend:
 
     def __call__(self, **kwargs):
         # Get real shape(all num tokens)
+
+        # real_shape 是初始做 decode 的 req数目(token数目，因为decode阶段每个
+        # req对应需要解码的token都是1)，padding_real_shape 是经过 padding 后的 token
+        # 数目，等于 cudagraph_capture_sizes 中 >= real_shape 的最小值
         ids_remove_padding: paddle.Tensor = kwargs["ids_remove_padding"]
         real_shape = ids_remove_padding.shape[0]
         padding_real_shape = self.real_shape_to_captured_size[real_shape]
@@ -88,6 +94,8 @@ class CudaGraphPiecewiseBackend:
             entry.runnable = self.runnable
             logger.debug(f"[CUDA GRAPH] New entry lazy initialize with real shape {padding_real_shape}")
 
+        # 如果不开启 cudagraph, 会回退到初始的 执行模式
+        # 具体是走 动态图执行还是静态图执行，取决于前面传入的 runnable
         if not entry.use_cudagraph:
             return entry.runnable(**kwargs)
 
