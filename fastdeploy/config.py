@@ -531,7 +531,9 @@ class GraphOptimizationConfig:
                 if bs == start:
                     self.real_shape_to_captured_size[bs] = start
                 else:
-                    self.real_shape_to_captured_size[bs] = end
+                    self.real_shape_to_captured_size[bs] = (
+                        end  # 默认向上执行padding过程, start=4, end=8: 则4->4, 5,6,7->8
+                    )
         self.real_shape_to_captured_size[self.max_capture_size] = self.max_capture_size
 
     def _set_cudagraph_sizes(self, max_num_seqs: int = 0):
@@ -546,7 +548,7 @@ class GraphOptimizationConfig:
         # Shape [256, 288, ... 992, 1024]
         draft_capture_sizes += [32 * i for i in range(17, 33)]
 
-        draft_capture_sizes.append(max_num_seqs)
+        draft_capture_sizes.append(max_num_seqs)  # max_num_seqs可能已经存在于draft_capture_sizes当中，所以后续需要去重
         self.cudagraph_capture_sizes = sorted(draft_capture_sizes)
 
     def to_json_string(self):

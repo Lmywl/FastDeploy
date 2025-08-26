@@ -549,11 +549,12 @@ class GPUModelRunner(ModelRunnerBase):
 
     def _dummy_prefill_inputs(self, num_tokens: int, batch_size: int, expected_decode_len: int):
         """Set dummy prefill inputs to share_inputs"""
+        # 这个函数实际上是
         # NOTE(gongshaotian): The maximum decoding length is equal to the expected decoded tokens plus the eos token
         max_dec_len = expected_decode_len + 1
         full_length = min(
             num_tokens // batch_size,
-            self.parallel_config.max_model_len - max_dec_len,
+            self.parallel_config.max_model_len - max_dec_len,  # 这里从另一个方面说明: max_model_len包括 eos_token
         )
 
         # NOTE(wanglongzhi): When the full length is too large, DeepEP's buffer size will not be enough to cause the result to appear nan.
@@ -573,6 +574,8 @@ class GPUModelRunner(ModelRunnerBase):
             self.share_inputs["eos_token_id"][:] = np.array(
                 [2] * self.model_config.eos_tokens_lens, dtype="int64"
             ).reshape(-1, 1)
+            # line 650 self.seq_lens_this_time_buffer = paddle.full([max_num_seqs, 1], 0, dtype="int32")
+            # max_num_seqs默认情况下是8，运行时可以自己指定;
             self.seq_lens_this_time_buffer[idx : idx + 1] = input_length
             self.share_inputs["step_seq_lens_encoder"][idx : idx + 1] = input_length
             self.share_inputs["seq_lens_encoder"][idx : idx + 1] = input_length
@@ -587,6 +590,8 @@ class GPUModelRunner(ModelRunnerBase):
             self.share_inputs["ori_seq_lens_encoder"][idx : idx + 1] = input_length
 
             self.share_inputs["encoder_block_lens"][idx : idx + 1] = block_num
+            # block_tables的形状为[batch_size, block_num], 其中每一行对应于每一个req中不同
+            # token所占据的Kv cache block
             self.share_inputs["block_tables"][idx : idx + 1, :block_num] = np.arange(
                 idx * block_num, (idx + 1) * block_num, 1
             )
@@ -787,6 +792,7 @@ class GPUModelRunner(ModelRunnerBase):
     def _prepare_inputs(self) -> None:
         """Prepare the model inputs"""
         if envs.ENABLE_V1_KVCACHE_SCHEDULER:
+            # recover_decode_task 是一个自定义 cuda 算子,
             recover_decode_task(
                 self.share_inputs["stop_flags"],
                 self.share_inputs["seq_lens_this_time"],
@@ -1026,8 +1032,8 @@ class GPUModelRunner(ModelRunnerBase):
         """
         Use dummy inputs to run before formal execution.
         Args:
-            num_tokens:
-            expected_decode_len: Expected number of tokens generated
+            num_tokens: 传入的是 max_num_batched_tokens, 即所有batch加起来的最大的token数目
+            expected_decode_len: Expected number of tokens generated, cudagraph capture时,该值为1
             in_capturing: Is cuda graph in capturing state
         """
         self._dummy_prefill_inputs(
@@ -1041,10 +1047,12 @@ class GPUModelRunner(ModelRunnerBase):
                 batch_size=batch_size,
                 expected_decode_len=expected_decode_len,
             )
+        logger.info(f"batch_size = {batch_size} num_tokens={num_tokens} in_capturing={in_capturing}")
         while True:
-
+            logger.info(f"seq_lens_this_time before: {self.share_inputs['seq_lens_this_time']}")
             # 1. Initialize forward meta and attention meta data
             self._prepare_inputs()
+            logger.info(f"seq_lens_this_time after: {self.share_inputs['seq_lens_this_time']}")
 
             # 2. Padding inputs for cuda graph
             self.forward_meta.step_use_cudagraph = in_capturing and self.forward_meta.step_use_cudagraph
@@ -1052,6 +1060,7 @@ class GPUModelRunner(ModelRunnerBase):
 
             # 3. Run model
             if self.enable_mm:
+
                 model_output = self.model(
                     self.share_inputs["ids_remove_padding"],
                     self.share_inputs["image_features"],
