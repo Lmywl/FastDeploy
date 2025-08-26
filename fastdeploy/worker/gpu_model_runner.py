@@ -575,7 +575,8 @@ class GPUModelRunner(ModelRunnerBase):
                 [2] * self.model_config.eos_tokens_lens, dtype="int64"
             ).reshape(-1, 1)
             # line 650 self.seq_lens_this_time_buffer = paddle.full([max_num_seqs, 1], 0, dtype="int32")
-            # max_num_seqs默认情况下是8，运行时可以自己指定;
+            # max_num_seqs默认情况下是8，运行时可以自己指定; 所以这里可能会产生 seq_lens_this_time_buffer 在部分
+            # ids 上为0的情况（例如 max_num_seqs=8, 而batch_size=4,则只有前4个数据 length不为0
             self.seq_lens_this_time_buffer[idx : idx + 1] = input_length
             self.share_inputs["step_seq_lens_encoder"][idx : idx + 1] = input_length
             self.share_inputs["seq_lens_encoder"][idx : idx + 1] = input_length
@@ -1049,15 +1050,14 @@ class GPUModelRunner(ModelRunnerBase):
             )
         logger.info(f"batch_size = {batch_size} num_tokens={num_tokens} in_capturing={in_capturing}")
         while True:
-            logger.info(f"seq_lens_this_time before: {self.share_inputs['seq_lens_this_time']}")
             # 1. Initialize forward meta and attention meta data
             self._prepare_inputs()
-            logger.info(f"seq_lens_this_time after: {self.share_inputs['seq_lens_this_time']}")
 
             # 2. Padding inputs for cuda graph
             self.forward_meta.step_use_cudagraph = in_capturing and self.forward_meta.step_use_cudagraph
             self.padding_cudagraph_inputs()
 
+            logger.info(f"ids_remove_padding shape {self.share_inputs['ids_remove_padding'].shape}")
             # 3. Run model
             if self.enable_mm:
 
