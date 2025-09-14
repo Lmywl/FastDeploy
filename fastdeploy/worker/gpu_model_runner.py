@@ -549,7 +549,14 @@ class GPUModelRunner(ModelRunnerBase):
 
     def _dummy_prefill_inputs(self, num_tokens: int, batch_size: int, expected_decode_len: int):
         """Set dummy prefill inputs to share_inputs"""
-        # 这个函数实际上是
+        """
+        这个函数实际上是`构造`prefill阶段产生的输出结果，用以后续decode阶段的输入
+        1. seqs_len_this_time_buffer构造：描述此次输入的不同request对应的prefill长度大小
+        2. 本次输入中，各个request对应的token信息：self.share_inputs["input_ids"][idx : idx + 1, :input_length] = np.array([5] * input_length)
+        3. 各个request对应需要的KV cache block信息：
+        self.share_inputs["block_tables"][idx : idx + 1, :block_num] = np.arange(
+                idx * block_num, (idx + 1) * block_num, 1) 按顺序将各个kv cache block进行编号
+        """
         # NOTE(gongshaotian): The maximum decoding length is equal to the expected decoded tokens plus the eos token
         max_dec_len = expected_decode_len + 1
         full_length = min(
@@ -592,7 +599,7 @@ class GPUModelRunner(ModelRunnerBase):
 
             self.share_inputs["encoder_block_lens"][idx : idx + 1] = block_num
             # block_tables的形状为[batch_size, block_num], 其中每一行对应于每一个req中不同
-            # token所占据的Kv cache block
+            # token所占据的Kv cache block 对应的编号
             self.share_inputs["block_tables"][idx : idx + 1, :block_num] = np.arange(
                 idx * block_num, (idx + 1) * block_num, 1
             )
